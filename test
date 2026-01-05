@@ -1,0 +1,396 @@
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <title>Optellen – adaptief (stipsommen)</title>
+  <style>
+    body{font-family:system-ui,sans-serif;background:#f4f6ff;margin:0;min-height:100vh;display:flex;justify-content:center;align-items:center}
+    .box{background:#fff;padding:2.2rem 2.4rem;border-radius:1.5rem;box-shadow:0 10px 30px rgba(0,0,0,.1);max-width:760px;width:95%;text-align:center}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap}
+    a.small{color:#4f46e5;text-decoration:none;font-weight:800}
+    .pill{display:inline-block;padding:.35rem .7rem;border-radius:999px;background:#eef2ff;font-weight:900}
+    h1{margin:.2rem 0 .2rem}
+    .sub{color:#555;margin:0 0 1rem}
+    .row{display:flex;justify-content:space-between;gap:.8rem;flex-wrap:wrap;margin:1rem 0;font-weight:900}
+    .q{font-size:3rem;margin:1rem 0;min-height:3rem}
+    .q small{font-size:1.2rem;color:#666;font-weight:800}
+    input[type="number"]{font-size:1.6rem;padding:.5rem .9rem;width:240px;text-align:center;border-radius:.9rem;border:2px solid #ccc;outline:none}
+    input[type="text"]{font-size:1rem;padding:.55rem .8rem;border-radius:.8rem;border:2px solid #ccc;outline:none;flex:1;min-width:260px}
+    input:focus{border-color:#4f46e5;box-shadow:0 0 0 3px rgba(79,70,229,.15)}
+    button{padding:.8rem 1.3rem;border:none;border-radius:999px;background:#4f46e5;color:#fff;font-weight:900;cursor:pointer}
+    button.secondary{background:#0f172a}
+    button:disabled{background:#bbb;cursor:default}
+    .feedback{height:1.4rem;margin-top:.5rem;font-weight:900}
+    .good{color:#16a34a}.bad{color:#dc2626}
+    .result{margin-top:1rem;font-weight:900}
+    .panel{margin-top:1rem;background:#f7f8ff;border:1px solid #e6e8ff;border-radius:1rem;padding:1rem;text-align:left}
+    .panel .btnrow{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:.6rem;align-items:center}
+    .smalltxt{font-size:.85rem;color:#666}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="top">
+      <a class="small" href="menu.html">← Menu</a>
+      <div class="pill" id="who">—</div>
+    </div>
+
+    <h1>Optellen</h1>
+    <p class="sub">Adaptief: niveau omhoog bij <b>24 of meer</b> goede antwoorden (2 minuten).</p>
+
+    <div class="row">
+      <div>⏱ <span id="time">2:00</span></div>
+      <div>✅ <span id="good">0</span></div>
+      <div>📊 <span id="tries">0</span></div>
+    </div>
+
+    <div class="pill" id="level">Niveau: —</div>
+
+    <div class="q" id="q">Druk op start</div>
+    <input id="ans" type="number" placeholder="antwoord" disabled>
+    <div id="fb" class="feedback"></div>
+
+    <div style="margin-top:1rem">
+      <button id="start">Start 2-minutentest</button>
+    </div>
+
+    <div id="res" class="result"></div>
+
+    <div class="panel">
+      <div><b>Code voor MOO (niveau meenemen)</b></div>
+      <div class="smalltxt">Klik <b>Maak code</b>, kopieer en plak in MOO. Op een andere Chromebook: plak en klik <b>Laad code</b>.</div>
+      <div class="btnrow">
+        <button id="make">Maak code</button>
+        <button id="load" class="secondary">Laad code</button>
+        <input id="code" placeholder="code..." />
+      </div>
+      <div class="smalltxt" id="msg"></div>
+    </div>
+  </div>
+
+<script>
+  // ===== opslag / leerling =====
+  const STORAGE_CURRENT = "rekenen_current_student_v1";
+  const STORAGE_DATA_PREFIX = "rekenen_data_v1_";
+
+  const id = localStorage.getItem(STORAGE_CURRENT) || "";
+  if(!id) location.href = "index.html";
+  document.getElementById("who").textContent = `Leerling: ${id}`;
+
+  function dataKey(id){ return STORAGE_DATA_PREFIX + id; }
+  function getData(){
+    const raw = localStorage.getItem(dataKey(id));
+    return raw ? JSON.parse(raw) : { v:1, id, levels:{plus:0,min:0,keer:0,deel:0} };
+  }
+  function setData(d){ localStorage.setItem(dataKey(id), JSON.stringify(d)); }
+
+  // ===== instellingen =====
+  const THRESHOLD = 24;
+  const SECONDS = 120;
+
+  const LEVELS = [
+    { name: "Niveau 1: optellen t/m 10" },
+    { name: "Niveau 2: stipsommen t/m 10" },
+    { name: "Niveau 3: tussen 10 en 20 (14 + 3)" },
+    { name: "Niveau 4: stipsommen (vriendjes van 10)" },
+    { name: "Niveau 5: t/m 20 met overschrijding (8 + 5)" },
+    { name: "Niveau 6: stipsommen t/m 20" },
+    { name: "Niveau 7: t/m 100 – tientallen (40 + 20)" },
+    { name: "Niveau 8: tientallen bij tiental+eenheid (43 + 20)" },
+    { name: "Niveau 9: eenheden zonder overschrijding (43 + 3)" },
+    { name: "Niveau 10: eenheden met overschrijding (58 + 6)" },
+    { name: "Niveau 11: tient+eenh zonder overschrijding (42 + 14)" },
+    { name: "Niveau 12: tient+eenh met overschrijding (48 + 24)" },
+  ];
+
+  // ===== UI =====
+  const timeEl = document.getElementById("time");
+  const goodEl = document.getElementById("good");
+  const triesEl = document.getElementById("tries");
+  const levelEl = document.getElementById("level");
+  const qEl = document.getElementById("q");
+  const ansEl = document.getElementById("ans");
+  const fbEl = document.getElementById("fb");
+  const resEl = document.getElementById("res");
+  const startBtn = document.getElementById("start");
+
+  // ===== state =====
+  let timer=null, t=SECONDS, good=0, tries=0, correct=0, active=false;
+
+  function fmt(s){ return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+  function r(min,max){ return Math.floor(Math.random()*(max-min+1))+min; }
+
+  function getLevelIndex(){
+    const d = getData();
+    const n = d.levels?.plus ?? 0;
+    return Math.min(Math.max(0, n), LEVELS.length-1);
+  }
+  function setLevelIndex(n){
+    const d = getData();
+    d.levels = d.levels || {plus:0,min:0,keer:0,deel:0};
+    d.levels.plus = Math.min(Math.max(0, n), LEVELS.length-1);
+    setData(d);
+    renderLevel();
+  }
+  function renderLevel(){
+    const i = getLevelIndex();
+    levelEl.textContent = `Niveau: ${LEVELS[i].name}`;
+  }
+
+  function tryLoop(makeFn, okFn){
+    for(let k=0;k<300;k++){
+      const v = makeFn();
+      if(okFn(v)) return v;
+    }
+    return makeFn();
+  }
+
+  // Stipsom weergave: altijd "..."
+  function dotsPlaceholder(){
+    return "...";
+  }
+
+  function makeQuestionForLevel(level){
+    let a=0,b=0,target=0,miss=0;
+
+    switch(level){
+
+
+
+
+      // 2) stipsommen t/m 10: a + ... = target (target<=10)
+      case 1: {
+        const p = tryLoop(
+          ()=>({a:r(0,9), target:r(1,10)}),
+          (x)=> x.target > x.a
+        );
+        a=p.a; target=p.target;
+        miss = target - a;
+        return { html: `${a} + ${dotsPlaceholder()} = ${target}<br><small>Wat moet erbij?</small>`, answer: miss };
+      }
+
+      // 3) tussen 10 en 20
+      case 2: {
+        const p = tryLoop(
+          ()=>({a:r(10,19), b:r(1,10)}),
+          (x)=> x.a+x.b >= 11 && x.a+x.b <= 20
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 4) vriendjes van 10: a + ... = 10
+      case 3: {
+        a = r(1,9);
+        miss = 10 - a;
+        return { html: `${a} + ${dotsPlaceholder()} = 10<br><small>Vriendjes van 10</small>`, answer: miss };
+      }
+
+      // 5) t/m 20 met overschrijding
+      case 4: {
+        const p = tryLoop(
+          ()=>({a:r(1,9), b:r(1,9)}),
+          (x)=> x.a+x.b >= 11 && x.a+x.b <= 20
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 6) stipsommen t/m 20: a + ... = target (target<=20)
+      case 5: {
+        const p = tryLoop(
+          ()=>({a:r(0,19), target:r(1,20)}),
+          (x)=> x.target > x.a
+        );
+        a=p.a; target=p.target;
+        miss = target - a;
+        return { html: `${a} + ${dotsPlaceholder()} = ${target}<br><small>Wat moet erbij?</small>`, answer: miss };
+      }
+
+      // 7) tientallen optellen
+      case 6: {
+        const p = tryLoop(
+          ()=>({a:r(1,9)*10, b:r(1,9)*10}),
+          (x)=> x.a+x.b <= 100
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 8) tientallen bij tiental+eenheid
+      case 7: {
+        const p = tryLoop(
+          ()=>({a:r(10,99), b:r(1,9)*10}),
+          (x)=> (x.a%10!==0) && (x.a+x.b<=100)
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 9) eenheden zonder overschrijding
+      case 8: {
+        const p = tryLoop(
+          ()=>({a:r(10,99), b:r(1,9)}),
+          (x)=> (x.a%10!==0) && ((x.a%10)+x.b<=9) && (x.a+x.b<=100)
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 10) eenheden met overschrijding
+      case 9: {
+        const p = tryLoop(
+          ()=>({a:r(10,99), b:r(1,9)}),
+          (x)=> (x.a%10!==0) && ((x.a%10)+x.b>=10) && (x.a+x.b<=100)
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 11) tient+eenh zonder overschrijding
+      case 10: {
+        const p = tryLoop(
+          ()=>({a:r(10,99), b:r(10,99)}),
+          (x)=> (x.a%10!==0) && (x.b%10!==0) && ((x.a%10)+(x.b%10)<=9) && (x.a+x.b<=100)
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+
+      // 12) tient+eenh met overschrijding
+      case 11: {
+        const p = tryLoop(
+          ()=>({a:r(10,99), b:r(10,99)}),
+          (x)=> (x.a%10!==0) && (x.b%10!==0) && ((x.a%10)+(x.b%10)>=10) && (x.a+x.b<=100)
+        );
+        a=p.a; b=p.b;
+        return { html: `${a} + ${b} = ?`, answer: a+b };
+      }
+    }
+  }
+
+  function newQ(){
+    const i = getLevelIndex();
+    const q = makeQuestionForLevel(i);
+    correct = q.answer;
+    qEl.innerHTML = q.html;
+    ansEl.value = "";
+    ansEl.focus();
+  }
+
+  function start(){
+    if(active) return;
+    active=true; good=0; tries=0; t=SECONDS;
+
+    goodEl.textContent="0";
+    triesEl.textContent="0";
+    fbEl.textContent="";
+    fbEl.className="feedback";
+    resEl.textContent="";
+
+    ansEl.disabled=false;
+    startBtn.disabled=true;
+
+    renderLevel();
+    newQ();
+    timeEl.textContent = fmt(t);
+
+    clearInterval(timer);
+    timer=setInterval(()=>{
+      t--;
+      timeEl.textContent=fmt(t);
+      if(t<=0) end();
+    },1000);
+  }
+
+  function end(){
+    clearInterval(timer);
+    active=false;
+    ansEl.disabled=true;
+    startBtn.disabled=false;
+
+    const pct = Math.round((good/tries)*100) || 0;
+    let msg = `Je had ${good} goed van ${tries} pogingen. (${pct}%)`;
+
+    const i = getLevelIndex();
+    if(good >= THRESHOLD && i < LEVELS.length-1){
+      setLevelIndex(i+1);
+      msg += " 🎉 Niveau omhoog!";
+    } else {
+      msg += ` (Huidig niveau: ${LEVELS[i].name})`;
+    }
+    resEl.textContent = msg;
+    renderLevel();
+  }
+
+  ansEl.addEventListener("keydown",(e)=>{
+    if(e.key!=="Enter" || !active) return;
+    if(ansEl.value==="") return;
+
+    tries++;
+    triesEl.textContent=String(tries);
+
+    if(Number(ansEl.value)===correct){
+      good++;
+      goodEl.textContent=String(good);
+      fbEl.textContent="Goed!";
+      fbEl.className="feedback good";
+    } else {
+      fbEl.textContent=`Helaas, het was ${correct}.`;
+      fbEl.className="feedback bad";
+    }
+    newQ();
+  });
+
+  startBtn.addEventListener("click", start);
+
+  renderLevel();
+  timeEl.textContent = fmt(SECONDS);
+
+  // ===== MOO export/import =====
+  const codeEl = document.getElementById("code");
+  const msgEl = document.getElementById("msg");
+
+  function checksum(str){ let h=0; for(let i=0;i<str.length;i++) h=(h*31+str.charCodeAt(i))>>>0; return h.toString(36); }
+  function b64encode(str){ return btoa(unescape(encodeURIComponent(str))); }
+  function b64decode(str){ return decodeURIComponent(escape(atob(str))); }
+
+  document.getElementById("make").addEventListener("click", ()=>{
+    const d = getData();
+    const payload = { v:1, id:d.id, levels:d.levels };
+    const json = JSON.stringify(payload);
+    const packed = b64encode(json) + "." + checksum(json);
+    codeEl.value = packed;
+    codeEl.select();
+    try{ document.execCommand("copy"); }catch(e){}
+    msgEl.textContent = "Code gemaakt (vaak al gekopieerd). Plak in MOO.";
+  });
+
+  document.getElementById("load").addEventListener("click", ()=>{
+    const raw = (codeEl.value||"").trim();
+    if(!raw){ msgEl.textContent="Plak eerst een code."; return; }
+
+    const parts = raw.split(".");
+    if(parts.length!==2){ msgEl.textContent="Code klopt niet (formaat)."; return; }
+
+    try{
+      const json = b64decode(parts[0]);
+      if(checksum(json)!==parts[1]){ msgEl.textContent="Code klopt niet (controle)."; return; }
+
+      const payload = JSON.parse(json);
+      if(!payload || payload.v!==1 || payload.id!==id || !payload.levels){
+        msgEl.textContent="Code is niet voor deze leerling.";
+        return;
+      }
+
+      setData({ v:1, id, levels: payload.levels });
+      renderLevel();
+      msgEl.textContent = "Geladen!";
+    } catch(e){
+      msgEl.textContent="Kon code niet lezen.";
+    }
+  });
+</script>
+</body>
+</html>
